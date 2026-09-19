@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Village Hero &mdash; 3rd Person Prototype</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #87ceeb;
+        font-family: system-ui, sans-serif;
+      }
+      #app canvas {
+        display: block;
+      }
+      #hint {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 8px;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.45);
+        text-align: center;
+        cursor: pointer;
+        user-select: none;
+        z-index: 10;
+      }
+      #hint.hidden {
+        display: none;
+      }
+      #hint h1 {
+        margin: 0;
+        font-size: 1.4rem;
+      }
+      #hint p {
+        margin: 0;
+        opacity: 0.85;
+      }
+      #placeholder-banner {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.55);
+        color: #ffd166;
+        font-size: 0.8rem;
+        border-radius: 6px;
+        max-width: 360px;
+        z-index: 5;
+        display: none;
+      }
+      #placeholder-banner.visible {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hint">
+      <h1>Village Hero Prototype</h1>
+      <p>Click to play &mdash; WASD to move, mouse to look around, Esc to release</p>
+    </div>
+    <div id="placeholder-banner">
+      Using placeholder character. Drop the Sketchfab model as
+      <code>public/assets/character/hero.glb</code> to use the real one.
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
