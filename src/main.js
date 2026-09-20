@@ -39,9 +39,16 @@ if (import.meta.env.DEV) {
   window.__debugAnimator = animator;
 }
 
-renderer.domElement.addEventListener('click', () => {
-  renderer.domElement.requestPointerLock();
-});
+function requestLock() {
+  if (document.pointerLockElement !== renderer.domElement) {
+    renderer.domElement.requestPointerLock();
+  }
+}
+// The hint overlay sits on top of the canvas (so it can show "click to
+// play"), which means the initial click lands on it, not the canvas -
+// it needs its own listener or pointer lock would never engage.
+hint.addEventListener('click', requestLock);
+renderer.domElement.addEventListener('click', requestLock);
 document.addEventListener('pointerlockchange', () => {
   hint.classList.toggle('hidden', document.pointerLockElement === renderer.domElement);
 });
