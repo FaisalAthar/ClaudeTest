@@ -32,23 +32,33 @@ Sketchfab model. It's loaded with `three`'s `FBXLoader` in `src/character.js`, w
 ## Idle / walk animation
 
 The hero's rig uses standard Mixamo bone names (`mixamorigHips`, `mixamorigSpine`,
-etc. — no colon, since the source FBX has it stripped). `src/animation.js` sources
-Idle and Walk clips from three.js's own official Mixamo-rigged demo character,
-[`Soldier.glb`](https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/Soldier.glb)
-(MIT-licensed, part of the three.js project's examples), and retargets them onto
-the hero's own skeleton, blending between the two based on `ThirdPersonController`'s
-movement state (`main.js`'s render loop calls `animator.setMoving(controller.isMoving, delta)`
-every frame).
+etc. — no colon, since the source FBX has it stripped). `src/animation.js` blends
+between two clips based on `ThirdPersonController`'s movement state (`main.js`'s
+render loop calls `animator.setMoving(controller.isMoving, delta)` every frame):
 
-Retargeting bone-name-identical Mixamo rigs isn't a straight copy despite the
-matching names — the two skeletons don't share a rest pose or local bone-axis
-convention. `retargetLocalDelta` in `src/animation.js` transplants each bone's
-*local rotation delta from its own rest pose* rather than forcing a shared
-world-space orientation (which is what `THREE.SkeletonUtils.retarget` does, and
-why it wasn't used here — it produced twisted limbs on this model). The hip's
-translation (root motion) is handled separately, converted through each
-skeleton's actual world-space displacement so the two rigs' differing internal
-unit scales don't leak in.
+- **Idle** — `public/assets/anim_source/idle.fbx`. Its embedded metadata
+  identifies it as a Mixamo "Retargeted Clip" already computed against this
+  exact character's uploaded skin, so it's applied directly (`remapToSkinnedMeshTracks`
+  just rewrites its track names to the `.bones[Name]` form the skinned mesh
+  needs — no pose correction, since Mixamo already did that server-side).
+- **Walk** — sourced from three.js's own official Mixamo-rigged demo character,
+  [`Soldier.glb`](https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/Soldier.glb)
+  (MIT-licensed, part of the three.js project's examples), which was *not*
+  retargeted for this character, so it goes through `retargetLocalDelta`
+  instead.
+
+Retargeting bone-name-identical Mixamo rigs from an arbitrary source (like the
+Soldier) isn't a straight copy despite the matching names — the two skeletons
+don't share a rest pose or local bone-axis convention. `retargetLocalDelta`
+transplants each bone's *local rotation delta from its own rest pose* rather
+than forcing a shared world-space orientation (which is what
+`THREE.SkeletonUtils.retarget` does, and why it wasn't used here — it produced
+twisted limbs on this model). The hip's translation (root motion) is handled
+separately, converted through each skeleton's actual world-space displacement
+so the two rigs' differing internal unit scales don't leak in. To replace the
+Walk clip with another Mixamo-retargeted-for-this-character animation later,
+drop it next to `idle.fbx` and bind it the same direct way — no retargeting
+needed.
 
 **Known limitation:** the "Source" FBX download from Sketchfab includes geometry,
 rig, and animation, but no diffuse textures — Sketchfab's raw source export
@@ -71,5 +81,6 @@ src/
 public/assets/character/
   hero.fbx                 # the character model
 public/assets/anim_source/
-  Soldier.glb               # source Idle/Walk clips (three.js demo asset)
+  idle.fbx                  # Idle clip, pre-retargeted by Mixamo for this character
+  Soldier.glb               # Walk clip source (three.js demo asset, DIY-retargeted)
 ```

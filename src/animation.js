@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
-const ANIM_SOURCE_URL = '/assets/anim_source/Soldier.glb';
+const WALK_SOURCE_URL = '/assets/anim_source/Soldier.glb';
+const IDLE_SOURCE_URL = '/assets/anim_source/idle.fbx';
 const HIP_BONE_NAME = 'mixamorigHips';
 const BLEND_RATE = 6; // higher = snappier idle/walk transition
 const TRACK_NAME_RE = /^(.+)\.(quaternion|position)$/;
@@ -151,29 +153,57 @@ function retargetLocalDelta(targetSkeleton, sourceSkeleton, sourceClip, { height
 }
 
 /**
- * Loads the Idle/Walk clips from three.js's official Mixamo-rigged "Soldier"
- * demo asset and retargets them onto root's own skeleton. Returns null if
- * root has no skinned mesh to animate (e.g. the placeholder).
+ * Rewrites a clip's "BoneName.quaternion"/"BoneName.position" track names to
+ * the ".bones[BoneName]..." form PropertyBinding needs when the mixer's root
+ * is a SkinnedMesh, without altering any values. Used for idle.fbx, which
+ * (per its own embedded metadata - "Retargeted Clip", referencing a specific
+ * uploaded skin file) was already retargeted by Mixamo's own servers against
+ * this exact hero skeleton, so no local-delta correction is needed: applying
+ * it directly is more faithful than re-deriving it ourselves.
+ */
+function remapToSkinnedMeshTracks(clip, targetSkeleton) {
+  const boneNames = new Set(targetSkeleton.bones.map((b) => b.name));
+  const tracks = [];
+  for (const track of clip.tracks) {
+    const match = track.name.match(TRACK_NAME_RE);
+    if (!match) continue;
+    const [, boneName, prop] = match;
+    if (!boneNames.has(boneName)) continue;
+    const Ctor = prop === 'quaternion' ? THREE.QuaternionKeyframeTrack : THREE.VectorKeyframeTrack;
+    tracks.push(new Ctor(`.bones[${boneName}].${prop}`, track.times.slice(), track.values.slice()));
+  }
+  return new THREE.AnimationClip(clip.name, clip.duration, tracks);
+}
+
+/**
+ * Loads the Idle clip from the user-supplied idle.fbx (pre-retargeted by
+ * Mixamo to this character) and the Walk clip from three.js's official
+ * Mixamo-rigged "Soldier" demo asset, retargeted onto root's own skeleton.
+ * Returns null if root has no skinned mesh to animate (e.g. the placeholder).
  */
 export async function loadLocomotionAnimator(root) {
   const targetMesh = findSkinnedMesh(root);
   if (!targetMesh) return null;
 
-  const loader = new GLTFLoader();
-  const gltf = await loader.loadAsync(ANIM_SOURCE_URL);
+  const [idleSource, gltf] = await Promise.all([
+    new FBXLoader().loadAsync(IDLE_SOURCE_URL),
+    new GLTFLoader().loadAsync(WALK_SOURCE_URL),
+  ]);
+  const idleSourceClip = idleSource.animations[0];
   const sourceMesh = findSkinnedMesh(gltf.scene);
-  const idleSourceClip = gltf.animations.find((clip) => clip.name === 'Idle');
   const walkSourceClip = gltf.animations.find((clip) => clip.name === 'Walk');
-  if (!sourceMesh || !idleSourceClip || !walkSourceClip) {
-    console.warn('[animation] Expected skeleton/Idle/Walk clips not found in', ANIM_SOURCE_URL);
+  if (!idleSourceClip || !sourceMesh || !walkSourceClip) {
+    console.warn('[animation] Expected idle/walk clips not found');
     return null;
   }
 
+  const idleClip = remapToSkinnedMeshTracks(idleSourceClip, targetMesh.skeleton);
+
   // root carries the non-unit scale character.js applies to normalize the
   // raw FBX to a fixed height; the skeleton's own bone positions/matrices
-  // stay in those raw units. Reset it to identity for the whole retargeting
-  // pass (retargetHipPositionTrack reads target hip's parent world matrix),
-  // and use the two skeletons' raw-unit height ratio to convert the hip's
+  // stay in those raw units. Reset it to identity for the retargeting pass
+  // (retargetHipPositionTrack reads target hip's parent world matrix), and
+  // use the two skeletons' raw-unit height ratio to convert the hip's
   // translation between them.
   const previousScale = root.scale.clone();
   root.scale.set(1, 1, 1);
@@ -185,7 +215,6 @@ export async function loadLocomotionAnimator(root) {
   const sourceHeight = sourceBox.max.y - sourceBox.min.y;
   const heightRatio = rawHeight / sourceHeight;
 
-  const idleClip = retargetLocalDelta(targetMesh.skeleton, sourceMesh.skeleton, idleSourceClip, { heightRatio });
   const walkClip = retargetLocalDelta(targetMesh.skeleton, sourceMesh.skeleton, walkSourceClip, { heightRatio });
 
   root.scale.copy(previousScale);
