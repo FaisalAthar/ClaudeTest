@@ -41,24 +41,25 @@ render loop calls `animator.setMoving(controller.isMoving, delta)` every frame):
   exact character's uploaded skin, so it's applied directly (`remapToSkinnedMeshTracks`
   just rewrites its track names to the `.bones[Name]` form the skinned mesh
   needs — no pose correction, since Mixamo already did that server-side).
-- **Walk** — sourced from three.js's own official Mixamo-rigged demo character,
-  [`Soldier.glb`](https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/Soldier.glb)
-  (MIT-licensed, part of the three.js project's examples), which was *not*
-  retargeted for this character, so it goes through `retargetLocalDelta`
-  instead.
+- **Walk** — `public/assets/anim_source/walking.fbx`, from a generic Mixamo
+  locomotion pack. Unlike the idle clip, it's *not* retargeted for this
+  character (it's motion-only, authored against Mixamo's generic "X Bot" rig),
+  so it goes through `retargetLocalDelta` using the pack's own bundled
+  `XBot.fbx` as the precise rest-pose reference — the exact skeleton the clip
+  was built for, rather than an unrelated stand-in.
 
-Retargeting bone-name-identical Mixamo rigs from an arbitrary source (like the
-Soldier) isn't a straight copy despite the matching names — the two skeletons
-don't share a rest pose or local bone-axis convention. `retargetLocalDelta`
-transplants each bone's *local rotation delta from its own rest pose* rather
-than forcing a shared world-space orientation (which is what
-`THREE.SkeletonUtils.retarget` does, and why it wasn't used here — it produced
-twisted limbs on this model). The hip's translation (root motion) is handled
-separately, converted through each skeleton's actual world-space displacement
-so the two rigs' differing internal unit scales don't leak in. To replace the
-Walk clip with another Mixamo-retargeted-for-this-character animation later,
-drop it next to `idle.fbx` and bind it the same direct way — no retargeting
-needed.
+Retargeting a Mixamo rig against an animation authored for a *different*
+character isn't a straight copy even when bone names match exactly — the two
+skeletons don't share a rest pose or local bone-axis convention.
+`retargetLocalDelta` transplants each bone's *local rotation delta from its
+own rest pose* rather than forcing a shared world-space orientation (which is
+what `THREE.SkeletonUtils.retarget` does, and why it wasn't used here — it
+produced twisted limbs on this model, even using the correct source
+skeleton). The hip's translation (root motion) is handled separately,
+converted through each skeleton's actual world-space displacement so the two
+rigs' differing internal unit scales don't leak in. To replace either clip
+with a fresh Mixamo-retargeted-for-this-character animation, drop it next to
+`idle.fbx` and bind it the same direct way — no retargeting needed.
 
 **Known limitation:** the "Source" FBX download from Sketchfab includes geometry,
 rig, and animation, but no diffuse textures — Sketchfab's raw source export
@@ -82,5 +83,6 @@ public/assets/character/
   hero.fbx                 # the character model
 public/assets/anim_source/
   idle.fbx                  # Idle clip, pre-retargeted by Mixamo for this character
-  Soldier.glb               # Walk clip source (three.js demo asset, DIY-retargeted)
+  walking.fbx                # Walk clip, DIY-retargeted via XBot.fbx below
+  XBot.fbx                    # rest-pose reference walking.fbx was authored against
 ```

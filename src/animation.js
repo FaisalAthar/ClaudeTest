@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
-const WALK_SOURCE_URL = '/assets/anim_source/Soldier.glb';
+const WALK_CLIP_URL = '/assets/anim_source/walking.fbx';
+const WALK_SKELETON_URL = '/assets/anim_source/XBot.fbx';
 const IDLE_SOURCE_URL = '/assets/anim_source/idle.fbx';
 const HIP_BONE_NAME = 'mixamorigHips';
 const BLEND_RATE = 6; // higher = snappier idle/walk transition
@@ -58,14 +58,14 @@ function applyDirectionOnly(vec, matrix) {
 
 /**
  * Retargets the hip's translation (root motion) track. This can't reuse a
- * simple local-position subtraction: Soldier's hip bone has its own internal
- * parent scale (its local position and world position differ by orders of
- * magnitude), while the hero's rig doesn't (local == world there), so a
- * naive local-space delta mixes two incompatible units. Instead this drives
- * the source hip bone through each frame, reads its true WORLD-space
- * displacement from rest, scales that by the two skeletons' height ratio,
- * then projects it into the target hip's own local space via its parent's
- * (fixed, since only the hip itself animates) world matrix.
+ * simple local-position subtraction: a source rig's hip bone may have its
+ * own internal parent scale (its local position and world position differing
+ * by orders of magnitude), while the hero's rig doesn't (local == world
+ * there), so a naive local-space delta risks mixing two incompatible units.
+ * Instead this drives the source hip bone through each frame, reads its true
+ * WORLD-space displacement from rest, scales that by the two skeletons'
+ * height ratio, then projects it into the target hip's own local space via
+ * its parent's (fixed, since only the hip itself animates) world matrix.
  */
 function retargetHipPositionTrack(track, targetHip, sourceHip, heightRatio) {
   const restSourceWorld = new THREE.Vector3();
@@ -177,21 +177,27 @@ function remapToSkinnedMeshTracks(clip, targetSkeleton) {
 
 /**
  * Loads the Idle clip from the user-supplied idle.fbx (pre-retargeted by
- * Mixamo to this character) and the Walk clip from three.js's official
- * Mixamo-rigged "Soldier" demo asset, retargeted onto root's own skeleton.
+ * Mixamo to this character) and the Walk clip from a Mixamo locomotion pack.
+ * The walk clip (walking.fbx) is motion-only (no mesh), authored against
+ * Mixamo's generic "X Bot" skeleton rather than this specific character, so
+ * it's retargeted onto root's own skeleton using the pack's own bundled
+ * XBot.fbx (which does have a skinned mesh) as the precise rest-pose
+ * reference - the exact rig the clip was built for, rather than an unrelated
+ * stand-in like three.js's demo characters.
  * Returns null if root has no skinned mesh to animate (e.g. the placeholder).
  */
 export async function loadLocomotionAnimator(root) {
   const targetMesh = findSkinnedMesh(root);
   if (!targetMesh) return null;
 
-  const [idleSource, gltf] = await Promise.all([
+  const [idleSource, walkSource, walkSkeletonSource] = await Promise.all([
     new FBXLoader().loadAsync(IDLE_SOURCE_URL),
-    new GLTFLoader().loadAsync(WALK_SOURCE_URL),
+    new FBXLoader().loadAsync(WALK_CLIP_URL),
+    new FBXLoader().loadAsync(WALK_SKELETON_URL),
   ]);
   const idleSourceClip = idleSource.animations[0];
-  const sourceMesh = findSkinnedMesh(gltf.scene);
-  const walkSourceClip = gltf.animations.find((clip) => clip.name === 'Walk');
+  const walkSourceClip = walkSource.animations[0];
+  const sourceMesh = findSkinnedMesh(walkSkeletonSource);
   if (!idleSourceClip || !sourceMesh || !walkSourceClip) {
     console.warn('[animation] Expected idle/walk clips not found');
     return null;
@@ -211,7 +217,7 @@ export async function loadLocomotionAnimator(root) {
   const rawBox = new THREE.Box3().setFromObject(root);
   const rawHeight = rawBox.max.y - rawBox.min.y;
 
-  const sourceBox = new THREE.Box3().setFromObject(gltf.scene);
+  const sourceBox = new THREE.Box3().setFromObject(walkSkeletonSource);
   const sourceHeight = sourceBox.max.y - sourceBox.min.y;
   const heightRatio = rawHeight / sourceHeight;
 
