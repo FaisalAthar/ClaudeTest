@@ -26,10 +26,29 @@ Sketchfab model. It's loaded with `three`'s `FBXLoader` in `src/character.js`, w
 
 - Normalizes scale/position so the model is ~1.8m tall with its feet at `y = 0`,
   regardless of the FBX's original unit scale.
-- Plays back the model's first embedded animation clip ("looking around" idle) via
-  `THREE.AnimationMixer`.
 - Falls back to a simple placeholder capsule if `hero.fbx` fails to load, so the
   game still runs without the asset present.
+
+## Idle / walk animation
+
+The hero's rig uses standard Mixamo bone names (`mixamorigHips`, `mixamorigSpine`,
+etc. — no colon, since the source FBX has it stripped). `src/animation.js` sources
+Idle and Walk clips from three.js's own official Mixamo-rigged demo character,
+[`Soldier.glb`](https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/Soldier.glb)
+(MIT-licensed, part of the three.js project's examples), and retargets them onto
+the hero's own skeleton, blending between the two based on `ThirdPersonController`'s
+movement state (`main.js`'s render loop calls `animator.setMoving(controller.isMoving, delta)`
+every frame).
+
+Retargeting bone-name-identical Mixamo rigs isn't a straight copy despite the
+matching names — the two skeletons don't share a rest pose or local bone-axis
+convention. `retargetLocalDelta` in `src/animation.js` transplants each bone's
+*local rotation delta from its own rest pose* rather than forcing a shared
+world-space orientation (which is what `THREE.SkeletonUtils.retarget` does, and
+why it wasn't used here — it produced twisted limbs on this model). The hip's
+translation (root motion) is handled separately, converted through each
+skeleton's actual world-space displacement so the two rigs' differing internal
+unit scales don't leak in.
 
 **Known limitation:** the "Source" FBX download from Sketchfab includes geometry,
 rig, and animation, but no diffuse textures — Sketchfab's raw source export
@@ -47,7 +66,10 @@ src/
   main.js                 # renderer/scene bootstrap, render loop
   environment.js           # empty test environment: ground, lights, fog
   character.js              # FBX character loading + placeholder fallback
+  animation.js              # idle/walk clip retargeting + blending
   ThirdPersonController.js  # WASD input, pointer-lock mouse look, orbit camera
 public/assets/character/
   hero.fbx                 # the character model
+public/assets/anim_source/
+  Soldier.glb               # source Idle/Walk clips (three.js demo asset)
 ```

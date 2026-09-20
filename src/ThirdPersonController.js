@@ -31,6 +31,7 @@ export class ThirdPersonController {
     this.domElement = domElement;
 
     this.input = { forward: false, backward: false, left: false, right: false };
+    this.isMoving = false;
     this.yaw = 0;
     this.pitch = 0.45;
     this.distance = 5;
@@ -92,7 +93,8 @@ export class ThirdPersonController {
     if (left) this._moveDir.x -= 1;
     if (right) this._moveDir.x += 1;
 
-    if (this._moveDir.lengthSq() === 0) return;
+    this.isMoving = this._moveDir.lengthSq() > 0;
+    if (!this.isMoving) return;
 
     this._moveDir.normalize().applyAxisAngle(this._up, this.yaw);
     this.character.position.addScaledVector(this._moveDir, MOVE_SPEED * delta);

@@ -78,18 +78,12 @@ export async function loadCharacter() {
 
     normalizeTransform(root);
 
-    let mixer = null;
-    if (root.animations && root.animations.length > 0) {
-      mixer = new THREE.AnimationMixer(root);
-      mixer.clipAction(root.animations[0]).play();
-    }
-
-    return { root, mixer, isPlaceholder: false };
+    return { root, isPlaceholder: false };
   } catch (err) {
     console.warn(
       `[character] Could not load ${MODEL_URL} (${err.message ?? err}). ` +
         'Using placeholder capsule instead.'
     );
-    return { root: buildPlaceholder(), mixer: null, isPlaceholder: true };
+    return { root: buildPlaceholder(), isPlaceholder: true };
   }
 }

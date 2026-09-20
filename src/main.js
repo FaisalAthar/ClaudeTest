@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { buildEnvironment } from './environment.js';
 import { loadCharacter } from './character.js';
+import { loadLocomotionAnimator } from './animation.js';
 import { ThirdPersonController } from './ThirdPersonController.js';
 
 const app = document.getElementById('app');
@@ -24,15 +25,18 @@ app.appendChild(renderer.domElement);
 
 buildEnvironment(scene);
 
-const { root: character, mixer, isPlaceholder } = await loadCharacter();
+const { root: character, isPlaceholder } = await loadCharacter();
 scene.add(character);
 if (isPlaceholder) placeholderBanner.classList.add('visible');
+
+const animator = await loadLocomotionAnimator(character);
 
 const controller = new ThirdPersonController(camera, character, renderer.domElement);
 
 if (import.meta.env.DEV) {
   window.__debugController = controller;
   window.__debugCharacter = character;
+  window.__debugAnimator = animator;
 }
 
 renderer.domElement.addEventListener('click', () => {
@@ -53,7 +57,10 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.1);
   controller.update(delta);
-  if (mixer) mixer.update(delta);
+  if (animator) {
+    animator.setMoving(controller.isMoving, delta);
+    animator.update(delta);
+  }
   renderer.render(scene, camera);
 }
 animate();
