@@ -66,8 +66,19 @@ function applyDirectionOnly(vec, matrix) {
  * WORLD-space displacement from rest, scales that by the two skeletons'
  * height ratio, then projects it into the target hip's own local space via
  * its parent's (fixed, since only the hip itself animates) world matrix.
+ *
+ * `stripHorizontal` drops the resulting X/Z delta, keeping only the vertical
+ * (Y) bob. Locomotion clips from mocap packs are typically captured with the
+ * performer actually walking across the capture volume, so the hip carries
+ * real forward translation baked in (confirmed here: walking.fbx's hip drifts
+ * ~172 raw units over one ~1s cycle, more than the character's own height).
+ * ThirdPersonController already drives world-space movement itself from
+ * WASD input at a fixed speed, so keeping the clip's own translation too
+ * doubles up: the mesh glides/slides on top of the controller's motion. This
+ * strips it so the clip loops in place, matching how the engine expects a
+ * locomotion cycle to be driven externally rather than authored into the clip.
  */
-function retargetHipPositionTrack(track, targetHip, sourceHip, heightRatio) {
+function retargetHipPositionTrack(track, targetHip, sourceHip, heightRatio, stripHorizontal) {
   const restSourceWorld = new THREE.Vector3();
   sourceHip.getWorldPosition(restSourceWorld);
   const restSourceLocal = sourceHip.position.clone();
@@ -88,6 +99,10 @@ function retargetHipPositionTrack(track, targetHip, sourceHip, heightRatio) {
 
     localDelta.subVectors(worldPos, restSourceWorld).multiplyScalar(heightRatio);
     applyDirectionOnly(localDelta, targetParentWorldInverse);
+    if (stripHorizontal) {
+      localDelta.x = 0;
+      localDelta.z = 0;
+    }
     localDelta.add(restTargetLocal);
     localDelta.toArray(out, i * 3);
   }
@@ -111,7 +126,7 @@ function retargetHipPositionTrack(track, targetHip, sourceHip, heightRatio) {
  * transplants the *relative* motion, so it's immune to that mismatch as
  * long as both skeletons share the same bone hierarchy/names, which they do.
  */
-function retargetLocalDelta(targetSkeleton, sourceSkeleton, sourceClip, { heightRatio }) {
+function retargetLocalDelta(targetSkeleton, sourceSkeleton, sourceClip, { heightRatio, stripHorizontalHipMotion = false }) {
   const targetRestQuat = new Map();
   targetSkeleton.bones.forEach((b) => targetRestQuat.set(b.name, b.quaternion.clone()));
   const sourceRestQuat = new Map();
@@ -144,7 +159,7 @@ function retargetLocalDelta(targetSkeleton, sourceSkeleton, sourceClip, { height
       // target's own limb-length positions and just rotates.
       const targetHip = targetSkeleton.getBoneByName(HIP_BONE_NAME);
       const sourceHip = sourceSkeleton.getBoneByName(HIP_BONE_NAME);
-      const out = retargetHipPositionTrack(track, targetHip, sourceHip, heightRatio);
+      const out = retargetHipPositionTrack(track, targetHip, sourceHip, heightRatio, stripHorizontalHipMotion);
       tracks.push(new THREE.VectorKeyframeTrack(`.bones[${boneName}].position`, track.times.slice(), out));
     }
   }
@@ -221,7 +236,10 @@ export async function loadLocomotionAnimator(root) {
   const sourceHeight = sourceBox.max.y - sourceBox.min.y;
   const heightRatio = rawHeight / sourceHeight;
 
-  const walkClip = retargetLocalDelta(targetMesh.skeleton, sourceMesh.skeleton, walkSourceClip, { heightRatio });
+  const walkClip = retargetLocalDelta(targetMesh.skeleton, sourceMesh.skeleton, walkSourceClip, {
+    heightRatio,
+    stripHorizontalHipMotion: true,
+  });
 
   root.scale.copy(previousScale);
   root.updateMatrixWorld(true);

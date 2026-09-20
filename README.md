@@ -57,8 +57,23 @@ what `THREE.SkeletonUtils.retarget` does, and why it wasn't used here — it
 produced twisted limbs on this model, even using the correct source
 skeleton). The hip's translation (root motion) is handled separately,
 converted through each skeleton's actual world-space displacement so the two
-rigs' differing internal unit scales don't leak in. To replace either clip
-with a fresh Mixamo-retargeted-for-this-character animation, drop it next to
+rigs' differing internal unit scales don't leak in.
+
+`walking.fbx` is mocap of someone actually walking across the capture
+volume, so its hip carries real forward translation baked in — confirmed by
+sampling its hip track: it drifts ~172 raw units over one ~1s cycle, more
+than the character's own height, versus `idle.fbx`'s hip returning to
+exactly its starting position every loop. `ThirdPersonController` already
+drives world-space movement itself from WASD input at a fixed speed, so
+keeping the clip's own baked-in translation doubled up with it — the mesh
+visibly glided on top of the controller's own motion. `retargetHipPositionTrack`
+takes a `stripHorizontal` flag (set for the walk clip only) that drops the
+retargeted hip's X/Z delta and keeps just the vertical bob, turning it back
+into an in-place cycle the controller can drive externally, the same way
+`idle.fbx` already loops in place natively.
+
+To replace either clip with a fresh Mixamo-retargeted-for-this-character
+animation, drop it next to
 `idle.fbx` and bind it the same direct way — no retargeting needed.
 
 **Known limitation:** the "Source" FBX download from Sketchfab includes geometry,
