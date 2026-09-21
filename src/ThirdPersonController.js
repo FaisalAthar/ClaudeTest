@@ -71,7 +71,7 @@ export class ThirdPersonController {
   _onMouseMove(e) {
     if (!this.isLocked) return;
     this.yaw -= e.movementX * MOUSE_SENSITIVITY;
-    this.pitch -= e.movementY * MOUSE_SENSITIVITY;
+    this.pitch += e.movementY * MOUSE_SENSITIVITY;
     this.pitch = Math.max(MIN_PITCH, Math.min(MAX_PITCH, this.pitch));
   }
 
