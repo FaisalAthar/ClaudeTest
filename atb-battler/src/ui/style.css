@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #0d1020;
   --panel: #171b33;
   --panel-2: #20264a;
@@ -47,9 +48,11 @@ button {
   flex-direction: column;
   width: 100%;
   max-width: 480px;
-  height: 100dvh;
+  height: 100%;
   margin: 0 auto;
-  padding: env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 12px);
+  padding-block: 0 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
   background: radial-gradient(ellipse at 50% 20%, #232a5c 0%, var(--bg) 70%);
   overflow: hidden;
 }
