@@ -1,0 +1,410 @@
+:root {
+  --bg: #0d1020;
+  --panel: #171b33;
+  --panel-2: #20264a;
+  --border: #323a6b;
+  --text: #e8ebff;
+  --muted: #8d94c4;
+  --hp: #4cd07d;
+  --hp-low: #e8504f;
+  --mp: #4f8ef0;
+  --atb: #f0c94f;
+  --weak: #ffb13b;
+  --resist: #8d94c4;
+  --heal: #6dffa8;
+  --fire: #ff6a3d;
+  --ice: #6fd3ff;
+  --thunder: #f7e05a;
+  --target: #ff5fa2;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #05060d;
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  overscroll-behavior: none;
+  user-select: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* Portrait frame: full screen on phones, a phone-shaped column on desktop. */
+#game {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 480px;
+  height: 100dvh;
+  margin: 0 auto;
+  padding: env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 12px);
+  background: radial-gradient(ellipse at 50% 20%, #232a5c 0%, var(--bg) 70%);
+  overflow: hidden;
+}
+
+/* ---------- Top bar ---------- */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+}
+.wave {
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.toggles {
+  display: flex;
+  gap: 6px;
+}
+.toggle {
+  min-width: 56px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 13px;
+  font-weight: 600;
+}
+.toggle.on {
+  background: var(--atb);
+  border-color: var(--atb);
+  color: #1b1600;
+}
+
+/* ---------- Enemy field ---------- */
+.field {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: center;
+  gap: 14px;
+  min-height: 0;
+}
+.enemy {
+  position: relative;
+  width: 140px;
+  padding: 10px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  transition: opacity 0.4s, transform 0.4s, border-color 0.15s;
+}
+.enemy.boss {
+  width: 200px;
+}
+.enemy.targeted {
+  border-color: var(--target);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--target) 50%, transparent);
+}
+.enemy.ko {
+  opacity: 0;
+  transform: scale(0.8);
+  pointer-events: none;
+}
+.sprite {
+  height: 72px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 40px;
+}
+.enemy.boss .sprite {
+  height: 110px;
+  font-size: 64px;
+}
+.enemy-name {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.tags {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+  font-size: 10px;
+}
+.tag {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.tag.weak {
+  background: color-mix(in srgb, var(--weak) 25%, transparent);
+  color: var(--weak);
+}
+.tag.resist {
+  background: color-mix(in srgb, var(--resist) 20%, transparent);
+  color: var(--resist);
+}
+
+/* ---------- Bars ---------- */
+.bar {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: #0a0c18;
+  overflow: hidden;
+}
+.bar + .bar {
+  margin-top: 4px;
+}
+.bar .fill {
+  height: 100%;
+  width: 0;
+  border-radius: 4px;
+  transition: width 0.25s;
+}
+.bar.hp .fill {
+  background: var(--hp);
+}
+.bar.hp.low .fill {
+  background: var(--hp-low);
+}
+.bar.mp .fill {
+  background: var(--mp);
+}
+.bar.atb .fill {
+  background: var(--atb);
+  transition: none;
+}
+.bar.atb.full .fill {
+  animation: pulse 0.6s ease-in-out infinite alternate;
+}
+.enemy .bar.atb {
+  height: 4px;
+}
+
+/* ---------- Banner ---------- */
+.banner {
+  height: 34px;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  color: var(--atb);
+  text-shadow: 0 2px 6px #000;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.banner.show {
+  opacity: 1;
+}
+
+/* ---------- Hero panel ---------- */
+.hero {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+.hero.ready {
+  border-color: var(--atb);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--atb) 35%, transparent);
+}
+.hero-sprite {
+  width: 64px;
+  height: 64px;
+  flex: none;
+  border-radius: 12px;
+  background: linear-gradient(160deg, #6a7cff, #3a3f9e);
+  display: grid;
+  place-items: center;
+  font-size: 34px;
+}
+.hero-sprite::after {
+  content: '🗡️';
+}
+.hero-stats {
+  flex: 1;
+  min-width: 0;
+}
+.hero-name {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.status {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--ice);
+}
+.stat {
+  display: grid;
+  grid-template-columns: 32px 1fr 64px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.stat + .stat {
+  margin-top: 5px;
+}
+.stat .label {
+  color: var(--muted);
+  font-weight: 700;
+}
+.stat .value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Commands (thumb zone) ---------- */
+.commands {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+.cmd {
+  min-height: 58px;
+  padding: 8px 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  transition: transform 0.08s, opacity 0.15s;
+}
+.cmd:active:not(:disabled) {
+  transform: scale(0.95);
+}
+.cmd:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.cmd .name {
+  font-weight: 700;
+  font-size: 15px;
+}
+.cmd .cost {
+  font-size: 11px;
+  color: var(--muted);
+}
+.cmd.fire .name { color: var(--fire); }
+.cmd.ice .name { color: var(--ice); }
+.cmd.thunder .name { color: var(--thunder); }
+.cmd.heal .name { color: var(--heal); }
+
+/* ---------- Combat feedback ---------- */
+.float {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  transform: translateX(-50%);
+  font-weight: 800;
+  font-size: 24px;
+  color: #fff;
+  text-shadow: 0 2px 0 #000, 0 0 8px #000;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: float-up 0.9s ease-out forwards;
+  z-index: 5;
+}
+.float.weak {
+  color: var(--weak);
+  font-size: 30px;
+}
+.float.resist {
+  color: var(--resist);
+}
+.float.heal {
+  color: var(--heal);
+}
+.float.mp {
+  color: var(--mp);
+  font-size: 16px;
+  top: 55%;
+}
+.float .note {
+  display: block;
+  font-size: 12px;
+  text-align: center;
+}
+
+.lunge {
+  animation: lunge 0.35s ease-out;
+}
+.hero.lunge {
+  animation: lunge-up 0.35s ease-out;
+}
+.hit {
+  animation: shake 0.3s linear;
+}
+
+@keyframes float-up {
+  0% { opacity: 0; transform: translate(-50%, 10px) scale(0.8); }
+  15% { opacity: 1; transform: translate(-50%, 0) scale(1.15); }
+  100% { opacity: 0; transform: translate(-50%, -40px) scale(1); }
+}
+@keyframes lunge {
+  50% { transform: translateY(14px) scale(1.05); }
+}
+@keyframes lunge-up {
+  50% { transform: translateY(-14px); }
+}
+@keyframes shake {
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+@keyframes pulse {
+  from { filter: brightness(1); }
+  to { filter: brightness(1.6); }
+}
+
+/* ---------- Overlay ---------- */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 6, 13, 0.75);
+  z-index: 10;
+}
+.overlay.hidden {
+  display: none;
+}
+.overlay-card {
+  text-align: center;
+  padding: 28px 36px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+}
+.overlay-card h2 {
+  margin: 0 0 6px;
+  font-size: 30px;
+}
+.overlay-card p {
+  margin: 0 0 18px;
+  color: var(--muted);
+}
+.primary {
+  padding: 12px 28px;
+  border: none;
+  border-radius: 10px;
+  background: var(--atb);
+  color: #1b1600;
+  font-weight: 700;
+}
