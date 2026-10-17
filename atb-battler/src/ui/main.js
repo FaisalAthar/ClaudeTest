@@ -1,5 +1,6 @@
 import { Battle } from '../engine/battle.js';
 import { ABILITIES, HERO, STAGES } from '../engine/data.js';
+import { HeroStage } from '../stage/heroStage.js';
 
 // Placeholder art until phase 2 swaps in 3D models.
 const SPRITES = {
@@ -14,6 +15,8 @@ const SPEEDS = [1, 2, 3];
 const $ = (id) => document.getElementById(id);
 const el = {
   wave: $('wave'),
+  field: $('field'),
+  heroAnchor: $('hero-anchor'),
   enemies: $('enemies'),
   banner: $('banner'),
   hero: $('hero'),
@@ -55,6 +58,7 @@ let battle;
 let targetId = null;
 let enemyEls = new Map();
 let bannerTimer = 0;
+const stage = new HeroStage(el.field);
 
 // ---------- Commands ----------
 const commandButtons = HERO.abilities.map((id) => {
@@ -112,6 +116,7 @@ function newBattle() {
   });
   battle.on(handleEvent);
   el.overlay.classList.add('hidden');
+  stage.reset();
   battle.start();
   renderToggles();
 }
@@ -127,12 +132,18 @@ function handleEvent(e) {
       const ability = ABILITIES[e.abilityId];
       const actor = battle.unit(e.actorId);
       showBanner(`${actor.name} — ${ability.name}`);
-      replayClass(unitEl(e.actorId), 'lunge');
+      if (e.actorId === 'hero') playHeroMove(ability);
+      else replayClass(unitEl(e.actorId), 'lunge');
       break;
     }
     case 'damage': {
       const target = unitEl(e.targetId);
-      replayClass(target, 'hit');
+      if (e.targetId === 'hero') {
+        stage.hit();
+        replayClass(el.hero, 'hit');
+      } else {
+        replayClass(target, 'hit');
+      }
       const note = e.tag === 'weak' ? 'WEAK!' : e.tag === 'resist' ? 'resist' : '';
       floatText(target, e.amount, e.tag ?? '', note);
       break;
@@ -147,7 +158,9 @@ function handleEvent(e) {
       floatText(unitEl(e.actorId), 'Guard', 'mp');
       break;
     case 'ko':
-      if (e.unitId !== 'hero') {
+      if (e.unitId === 'hero') {
+        stage.ko();
+      } else {
         enemyEls.get(e.unitId)?.root.classList.add('ko');
         if (targetId === e.unitId) targetId = battle.livingEnemies()[0]?.id ?? null;
       }
@@ -156,6 +169,7 @@ function handleEvent(e) {
       showBanner('Wave cleared!');
       break;
     case 'victory':
+      stage.victory();
       showOverlay('Victory!', `Stage cleared with ${battle.hero.hp} HP left`, 'Play again');
       break;
     case 'defeat':
@@ -220,8 +234,16 @@ function render() {
   }
 }
 
+function playHeroMove(ability) {
+  if (ability.kind === 'physical') stage.attack();
+  else if (ability.kind === 'magic') stage.cast(ability.element);
+  else if (ability.kind === 'heal') stage.heal();
+  else if (ability.kind === 'defend') stage.defend();
+}
+
+// Hero popups float over the 3D model's head rather than the stats panel.
 function unitEl(id) {
-  return id === 'hero' ? el.hero : enemyEls.get(id)?.root;
+  return id === 'hero' ? el.heroAnchor : enemyEls.get(id)?.root;
 }
 
 function replayClass(node, cls) {
@@ -262,6 +284,9 @@ function frame(now) {
   battle.update(dt * prefs.speed);
   bannerTimer -= dt;
   if (bannerTimer <= 0) el.banner.classList.remove('show');
+  stage.update(dt, dt * prefs.speed);
+  const head = stage.headScreenPosition();
+  el.heroAnchor.style.transform = `translate(${head.x}px, ${head.y}px)`;
   render();
   requestAnimationFrame(frame);
 }
