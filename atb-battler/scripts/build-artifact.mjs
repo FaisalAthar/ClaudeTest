@@ -14,7 +14,7 @@ const js = readFileSync(join(dist, jsPath), 'utf8').replace(/<\/script/gi, '<\\/
 const assetsDir = new URL('../public/assets/', import.meta.url).pathname;
 const assets = {};
 for (const file of readdirSync(assetsDir, { recursive: true })) {
-  if (!/\.(fbx|glb)$/i.test(file)) continue;
+  if (!/\.(fbx|glb|json)$/i.test(file)) continue;
   assets[file.split('\\').join('/')] = readFileSync(join(assetsDir, file)).toString('base64');
 }
 const body = html.match(/<body>([\s\S]*)<\/body>/)[1];

@@ -211,6 +211,7 @@ function render() {
   el.heroHp.textContent = `${hero.hp}/${hero.maxHp}`;
   el.heroHpFill.style.width = `${(hero.hp / hero.maxHp) * 100}%`;
   el.heroHpFill.parentElement.classList.toggle('low', hero.hp / hero.maxHp < 0.3);
+  stage.setHurt(hero.hp > 0 && hero.hp / hero.maxHp < 0.3);
   el.heroMp.textContent = `${hero.mp}/${hero.maxMp}`;
   el.heroMpFill.style.width = `${(hero.mp / hero.maxMp) * 100}%`;
   el.heroAtbFill.style.width = `${hero.atb * 100}%`;

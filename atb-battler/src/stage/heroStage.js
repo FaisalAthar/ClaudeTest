@@ -67,14 +67,14 @@ export class HeroStage {
     this.tweens = [];
     this.effects = [];
     this.materials = [];
-    this.mixer = null;
+    this.animator = null;
     this.flash = 0;
     this.headPos = new THREE.Vector3();
 
-    this.ready = loadHeroModel().then(({ root, materials, mixer }) => {
+    this.ready = loadHeroModel().then(({ root, materials, animator }) => {
       this.pivot.add(root);
       this.materials = materials.filter((m) => m.emissive);
-      this.mixer = mixer;
+      this.animator = animator;
     });
 
     this.resize();
@@ -94,29 +94,48 @@ export class HeroStage {
     for (const fx of this.effects) this.scene.remove(fx.mesh);
     this.effects = [];
     this.flash = 0;
+    this.animator?.reset();
+  }
+
+  // Plays a baked clip if there is one; returns false so callers can fall
+  // back to a procedural move (e.g. when the clips failed to load).
+  clip(name) {
+    if (!this.animator?.has(name)) return false;
+    this.animator.play(name);
+    return true;
+  }
+
+  setHurt(hurt) {
+    this.animator?.setHurt(hurt);
   }
 
   // ---------- Moves ----------
   attack() {
-    this.tween(0.45, (p, o) => {
+    const animated = this.clip('attack');
+    // Step in toward the enemies; the clip swings in place.
+    this.tween(animated ? 0.9 : 0.45, (p, o) => {
       const s = Math.sin(Math.PI * p);
-      o.z += s * 1.1;
-      o.rotX += s * 0.25;
+      o.z += s * (animated ? 0.8 : 1.1);
+      if (!animated) o.rotX += s * 0.25;
     });
   }
 
   cast(element) {
-    this.tween(0.5, (p, o) => {
-      o.y += Math.sin(Math.PI * p) * 0.18;
-    });
+    if (!this.clip('cast')) {
+      this.tween(0.5, (p, o) => {
+        o.y += Math.sin(Math.PI * p) * 0.18;
+      });
+    }
     this.ring(ELEMENT_COLORS[element] ?? 0xffffff);
   }
 
   heal() {
+    this.clip('heal');
     this.ring(HEAL_COLOR);
   }
 
   defend() {
+    this.clip('defend');
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(1.1, 24, 16),
       new THREE.MeshBasicMaterial({ color: GUARD_COLOR, transparent: true, opacity: 0.35, depthWrite: false })
@@ -130,12 +149,14 @@ export class HeroStage {
 
   hit() {
     this.flash = 1;
+    this.clip('hit');
     this.tween(0.3, (p, o) => {
       o.z -= Math.sin(Math.PI * p) * 0.3;
     });
   }
 
   ko() {
+    if (this.clip('ko')) return;
     this.tween(0.7, (p, o) => {
       o.rotX -= p * 1.45;
       o.z -= p * 0.4;
@@ -143,6 +164,7 @@ export class HeroStage {
   }
 
   victory() {
+    if (this.clip('victory')) return;
     this.tween(0.6, (p, o) => {
       o.y += Math.sin(Math.PI * p) * 0.35;
       o.rotY += p * Math.PI * 2;
@@ -173,9 +195,9 @@ export class HeroStage {
     this.effects.push({ mesh, t: 0, duration, apply });
   }
 
-  // battleDt follows the game's speed setting; realDt drives the idle loop.
+  // battleDt follows the game's speed setting.
   update(realDt, battleDt) {
-    this.mixer?.update(realDt);
+    this.animator?.update(battleDt);
 
     const o = { y: 0, z: 0, rotX: 0, rotY: 0 };
     this.tweens = this.tweens.filter((tw) => {

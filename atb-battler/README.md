@@ -32,6 +32,44 @@ node test/balance.mjs 300   # auto-battle win rate / duration across seeds
 - **Speed**: 1× / 2× / 3×.
 - **Stage**: 3 waves (Goblins → Frost Wolf + Bomb → Ogre boss).
 
+## Hero model and animations
+
+- **Model + idle**: `public/assets/hero/hero.fbx` and `idle.fbx`, the same
+  Village Hero and Mixamo idle as the third-person prototype in the repo root.
+- **Battle moves**: retargeted from the CC0 animation library in
+  [Mesh2Motion](https://github.com/scottpetrovic/mesh2motion-app)
+  (`static/animations/human-base-animations.glb` and
+  `human-addon-animations.glb`), baked into `public/assets/hero/battle-anims.json`:
+
+  | Battle action | Source clip |
+  |---|---|
+  | Attack | `Sword_Attack` (played at 1.4×) |
+  | Fire / Blizzard / Thunder | `Spell_Simple_Shoot` |
+  | Cure | `Power Up` |
+  | Defend | `Sword_Block` |
+  | Taking a hit | `Hit_Chest` |
+  | KO | `Death_B` |
+  | Victory | `Victory` |
+  | Idle below 30% HP | `Idle Hurt` |
+
+- **Sword**: a small procedural mesh parented to the right-hand bone.
+
+### Re-baking
+
+To swap a clip, edit `CLIPS` in `scripts/bake-animations.mjs`, put the two
+Mesh2Motion GLBs in `anim-source/` (git-ignored), and run:
+
+```bash
+node scripts/bake-animations.mjs --preview /some/dir   # needs Playwright's Chromium
+```
+
+The source rig uses Unreal-style bone names and a different rest pose from
+the Mixamo hero, so `tools/bake/retarget.js` maps bones by name and transfers
+each bone's world-space rotation from its own rest pose, after aligning the
+two rest poses by bone direction. The script prints each clip's worst
+per-bone direction error against the source (currently under 10°) and,
+with `--preview`, writes side-by-side source/hero frames.
+
 ## Layout
 
 ```
@@ -42,6 +80,8 @@ src/engine/   pure game logic, no DOM — unit-testable
   data.js       abilities, hero, enemies, stages (all tuning lives here)
   rng.js        seeded PRNG for reproducible battles
 src/ui/       DOM renderer that listens to engine events
+src/stage/    Three.js hero layer: model, sword, animation blending, effects
+tools/bake/   browser page used by scripts/bake-animations.mjs
 test/         node:test suite + balance probe
 ```
 
