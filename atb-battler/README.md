@@ -21,12 +21,12 @@ node test/balance.mjs 300   # win rate by QTE skill across seeds
 - **Turns**: each round every living unit acts once, fastest first (the hero
   wins ties). The strip under the wave counter shows the next seven turns.
   Nothing happens on the hero's turn until you pick a command.
-- **Attack QTE**: Attack, Fire, Blizzard and Thunder bring up a hexagon over
-  the target: a thick outline closes in on a solid core. Tap anywhere (or
+- **Attack QTE**: Attack, Fire, Blizzard and Thunder bring up a hexagon in the
+  middle of the screen: a thick outline closes in on a solid core. Tap anywhere (or
   press Space) as they meet for a **perfect hit, ×2 damage**. Early, late or
   no tap = normal damage.
 - **Parry QTE**: on an enemy's turn the card glows red, then the hexagon
-  appears over the hero. Tap on time to **parry**: no damage, and the hero
+  appears in the middle of the screen. Tap on time to **parry**: no damage, and the hero
   counter-attacks (Counter, 1.2× an Attack, +3 MP). Miss and the hit lands.
 - Timing per move is `qteTime` in `src/engine/data.js` (0.75–1.35 s; heavier
   enemy moves are slower to read); windows are `QTE_WINDOW` (±110 ms for a

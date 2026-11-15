@@ -192,16 +192,16 @@ function handleEvent(e) {
   }
 }
 
-// Hero attacks: prompt over the target. Enemy attacks: prompt over the hero
-// after a short wind-up so the player can see who is swinging.
+// Every prompt appears in the middle of the screen so the player always
+// knows where to look. Enemy attacks get a short wind-up first so the player
+// can see who is swinging.
 function startQte(e) {
   const id = session;
   const ability = ABILITIES[e.abilityId];
   const delay = e.qte === 'parry' ? WINDUP : 120;
   later(delay, async () => {
-    const at = e.qte === 'attack' ? centerOf(enemyEls.get(e.targetId)?.sprite) : heroChest();
     const { success } = await runQte(el.qteLayer, {
-      ...at,
+      ...screenCenter(),
       kind: e.qte,
       duration: ability.qteTime,
       window: QTE_WINDOW[e.qte],
@@ -286,16 +286,8 @@ function unitEl(id) {
   return id === 'hero' ? el.heroAnchor : enemyEls.get(id)?.root;
 }
 
-function centerOf(node) {
-  const g = el.game.getBoundingClientRect();
-  const r = (node ?? el.field).getBoundingClientRect();
-  return { x: r.left + r.width / 2 - g.left, y: r.top + r.height / 2 - g.top };
-}
-
-function heroChest() {
-  const g = el.game.getBoundingClientRect();
-  const r = el.heroAnchor.getBoundingClientRect();
-  return { x: r.left - g.left, y: r.top - g.top + 70 };
+function screenCenter() {
+  return { x: el.game.clientWidth / 2, y: el.game.clientHeight / 2 };
 }
 
 function replayClass(node, cls) {
