@@ -9,7 +9,7 @@
   --hp: #4cd07d;
   --hp-low: #e8504f;
   --mp: #4f8ef0;
-  --atb: #f0c94f;
+  --gold: #f0c94f;
   --weak: #ffb13b;
   --resist: #8d94c4;
   --heal: #6dffa8;
@@ -82,8 +82,8 @@ button {
   font-weight: 600;
 }
 .toggle.on {
-  background: var(--atb);
-  border-color: var(--atb);
+  background: var(--gold);
+  border-color: var(--gold);
   color: #1b1600;
 }
 
@@ -204,16 +204,6 @@ button {
 .bar.mp .fill {
   background: var(--mp);
 }
-.bar.atb .fill {
-  background: var(--atb);
-  transition: none;
-}
-.bar.atb.full .fill {
-  animation: pulse 0.6s ease-in-out infinite alternate;
-}
-.enemy .bar.atb {
-  height: 4px;
-}
 
 /* ---------- Banner ---------- */
 .banner {
@@ -221,7 +211,7 @@ button {
   display: grid;
   place-items: center;
   font-weight: 700;
-  color: var(--atb);
+  color: var(--gold);
   text-shadow: 0 2px 6px #000;
   opacity: 0;
   transition: opacity 0.15s;
@@ -242,8 +232,8 @@ button {
   background: var(--panel);
 }
 .hero.ready {
-  border-color: var(--atb);
-  box-shadow: 0 0 16px color-mix(in srgb, var(--atb) 35%, transparent);
+  border-color: var(--gold);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--gold) 35%, transparent);
 }
 .hero-stats {
   flex: 1;
@@ -374,10 +364,6 @@ button {
   60% { transform: translateX(-4px); }
   80% { transform: translateX(4px); }
 }
-@keyframes pulse {
-  from { filter: brightness(1); }
-  to { filter: brightness(1.6); }
-}
 
 /* ---------- Overlay ---------- */
 .overlay {
@@ -410,7 +396,157 @@ button {
   padding: 12px 28px;
   border: none;
   border-radius: 10px;
-  background: var(--atb);
+  background: var(--gold);
   color: #1b1600;
   font-weight: 700;
+}
+
+/* ---------- Turn order ---------- */
+.turns {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+  align-items: center;
+}
+.turn {
+  width: 34px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  background: var(--panel-2);
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  opacity: 0.75;
+}
+.turn.hero {
+  background: #3a4590;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.turn.hero.now {
+  font-size: 12px;
+}
+.turn.now {
+  width: 42px;
+  height: 48px;
+  opacity: 1;
+  background: var(--gold);
+  color: #1b1600;
+}
+.turn-label {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ---------- Enemy wind-up before its attack lands ---------- */
+.enemy.windup {
+  border-color: var(--hp-low);
+  animation: windup 0.5s ease-in-out infinite alternate;
+}
+@keyframes windup {
+  to { box-shadow: 0 0 22px color-mix(in srgb, var(--hp-low) 70%, transparent); }
+}
+
+/* ---------- QTE ---------- */
+.qte-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+}
+.qte-catcher {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.qte {
+  --qte: var(--gold);
+  position: absolute;
+  width: 200px;
+  height: 200px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.qte-parry {
+  --qte: #d6e6ff;
+}
+.qte svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.qte-core {
+  fill: var(--qte);
+  opacity: 0.9;
+}
+.qte-frame {
+  fill: none;
+  stroke: var(--qte);
+  stroke-width: 2;
+  opacity: 0.35;
+}
+.qte-ring {
+  fill: none;
+  stroke: var(--qte);
+  stroke-width: 11;
+  stroke-linejoin: miter;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 6px #000);
+}
+.qte-live .qte-frame {
+  opacity: 0.9;
+}
+.qte-label,
+.qte-hint {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-weight: 800;
+  text-shadow: 0 2px 0 #000, 0 0 8px #000;
+}
+.qte-label {
+  top: 100%;
+  margin-top: -36px;
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  color: var(--qte);
+}
+.qte-hint {
+  top: 100%;
+  margin-top: -10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.qte-success svg {
+  animation: qte-burst 0.6s ease-out forwards;
+}
+.qte-success .qte-label {
+  font-size: 20px;
+}
+.qte-fail {
+  --qte: var(--muted);
+}
+.qte-fail svg {
+  animation: qte-fade 0.6s ease-out forwards;
+}
+@keyframes qte-burst {
+  0% { transform: scale(1); filter: brightness(2); }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+@keyframes qte-fade {
+  100% { opacity: 0; transform: scale(0.9); }
+}
+
+.float.perfect {
+  color: var(--gold);
+  font-size: 32px;
 }

@@ -1,8 +1,9 @@
 import { Battle } from '../engine/battle.js';
-import { ABILITIES, HERO, STAGES } from '../engine/data.js';
+import { ABILITIES, HERO, QTE_WINDOW, STAGES } from '../engine/data.js';
 import { HeroStage } from '../stage/heroStage.js';
+import { runQte } from './qte.js';
 
-// Placeholder art until phase 2 swaps in 3D models.
+// Placeholder art until enemies get 3D models.
 const SPRITES = {
   Goblin: { glyph: '👺', bg: 'linear-gradient(160deg,#4f7a3a,#2a4220)' },
   'Frost Wolf': { glyph: '🐺', bg: 'linear-gradient(160deg,#5aa0c8,#2b4f70)' },
@@ -10,11 +11,15 @@ const SPRITES = {
   Ogre: { glyph: '👹', bg: 'linear-gradient(160deg,#8a4fb0,#432363)' },
 };
 const ELEMENT_CLASS = { fire: 'fire', ice: 'ice', thunder: 'thunder' };
-const SPEEDS = [1, 2, 3];
+const TURN_PAUSE = 700; // ms an action stays on screen before the next turn
+const WAVE_PAUSE = 1600;
+const WINDUP = 380; // ms an enemy telegraphs before its parry prompt starts
 
 const $ = (id) => document.getElementById(id);
 const el = {
+  game: $('game'),
   wave: $('wave'),
+  turns: $('turns'),
   field: $('field'),
   heroAnchor: $('hero-anchor'),
   enemies: $('enemies'),
@@ -25,40 +30,45 @@ const el = {
   heroHpFill: $('hero-hp-fill'),
   heroMp: $('hero-mp'),
   heroMpFill: $('hero-mp-fill'),
-  heroAtbFill: $('hero-atb-fill'),
   commands: $('commands'),
+  qteLayer: $('qte-layer'),
   overlay: $('overlay'),
   overlayTitle: $('overlay-title'),
   overlaySub: $('overlay-sub'),
   overlayBtn: $('overlay-btn'),
   btnAuto: $('btn-auto'),
-  btnSpeed: $('btn-speed'),
-  btnMode: $('btn-mode'),
 };
 
 // Per-viewer UI preferences; the game works fine if storage is unavailable.
+const PREFS_KEY = 'hex-battler-prefs';
 const prefs = loadPrefs();
 function loadPrefs() {
-  const defaults = { auto: false, speed: 1, atbMode: 'active' };
+  const defaults = { auto: false };
   try {
-    return { ...defaults, ...JSON.parse(localStorage.getItem('atb-prefs') || '{}') };
+    return { ...defaults, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') };
   } catch {
     return defaults;
   }
 }
 function savePrefs() {
   try {
-    localStorage.setItem('atb-prefs', JSON.stringify(prefs));
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {
     /* ignore */
   }
 }
 
 let battle;
+let session = 0; // bumps on every new battle so stale timers and QTEs bail out
 let targetId = null;
 let enemyEls = new Map();
 let bannerTimer = 0;
 const stage = new HeroStage(el.field);
+
+const later = (ms, fn) => {
+  const id = session;
+  setTimeout(() => id === session && fn(), ms);
+};
 
 // ---------- Commands ----------
 const commandButtons = HERO.abilities.map((id) => {
@@ -78,47 +88,33 @@ const commandButtons = HERO.abilities.map((id) => {
   return { id, ability, btn };
 });
 
-// ---------- Toggles ----------
 el.btnAuto.addEventListener('click', () => {
   prefs.auto = !prefs.auto;
+  savePrefs();
+  renderToggles();
   battle.setAuto(prefs.auto);
-  savePrefs();
-  renderToggles();
-});
-el.btnSpeed.addEventListener('click', () => {
-  prefs.speed = SPEEDS[(SPEEDS.indexOf(prefs.speed) + 1) % SPEEDS.length];
-  savePrefs();
-  renderToggles();
-});
-el.btnMode.addEventListener('click', () => {
-  prefs.atbMode = prefs.atbMode === 'active' ? 'wait' : 'active';
-  battle.setAtbMode(prefs.atbMode);
-  savePrefs();
-  renderToggles();
 });
 el.overlayBtn.addEventListener('click', newBattle);
 
 function renderToggles() {
   el.btnAuto.classList.toggle('on', prefs.auto);
-  el.btnSpeed.textContent = `${prefs.speed}×`;
-  el.btnSpeed.classList.toggle('on', prefs.speed > 1);
-  el.btnMode.textContent = prefs.atbMode === 'active' ? 'Active' : 'Wait';
 }
 
 // ---------- Battle lifecycle ----------
 function newBattle() {
+  session++;
+  el.qteLayer.innerHTML = '';
   battle = new Battle({
     hero: HERO,
     stage: STAGES.forest,
     seed: (Math.random() * 2 ** 32) >>> 0,
-    atbMode: prefs.atbMode,
     auto: prefs.auto,
   });
   battle.on(handleEvent);
   el.overlay.classList.add('hidden');
   stage.reset();
-  battle.start();
   renderToggles();
+  battle.start();
 }
 
 function handleEvent(e) {
@@ -128,14 +124,28 @@ function handleEvent(e) {
       el.wave.textContent = `Wave ${e.wave + 1}/${e.total}`;
       showBanner(e.wave + 1 === e.total ? 'Boss Battle!' : `Wave ${e.wave + 1}`);
       break;
+    case 'turnStart':
+      renderTurns();
+      break;
+    case 'heroTurn':
+      if (!battle.auto) showBanner('Your turn');
+      break;
     case 'actionStart': {
       const ability = ABILITIES[e.abilityId];
       const actor = battle.unit(e.actorId);
       showBanner(`${actor.name} — ${ability.name}`);
       if (e.actorId === 'hero') playHeroMove(ability);
-      else replayClass(unitEl(e.actorId), 'lunge');
+      if (e.qte === 'parry') enemyEls.get(e.actorId)?.root.classList.add('windup');
+      if (e.qte) startQte(e);
       break;
     }
+    case 'qteResult':
+      enemyEls.get(e.actorId)?.root.classList.remove('windup');
+      if (e.kind === 'parry') replayClass(enemyEls.get(e.actorId)?.root, 'lunge');
+      break;
+    case 'parry':
+      stage.parry(); // the QTE itself shows "PARRY!"
+      break;
     case 'damage': {
       const target = unitEl(e.targetId);
       if (e.targetId === 'hero') {
@@ -144,8 +154,8 @@ function handleEvent(e) {
       } else {
         replayClass(target, 'hit');
       }
-      const note = e.tag === 'weak' ? 'WEAK!' : e.tag === 'resist' ? 'resist' : '';
-      floatText(target, e.amount, e.tag ?? '', note);
+      const notes = [e.perfect && 'PERFECT', e.tag === 'weak' && 'WEAK!', e.tag === 'resist' && 'resist'];
+      floatText(target, e.amount, e.perfect ? 'perfect' : (e.tag ?? ''), notes.filter(Boolean).join(' · '));
       break;
     }
     case 'heal':
@@ -165,17 +175,39 @@ function handleEvent(e) {
         if (targetId === e.unitId) targetId = battle.livingEnemies()[0]?.id ?? null;
       }
       break;
+    case 'turnEnd':
+      later(TURN_PAUSE, () => battle.next());
+      break;
     case 'waveCleared':
       showBanner('Wave cleared!');
+      later(WAVE_PAUSE, () => battle.next());
       break;
     case 'victory':
       stage.victory();
-      showOverlay('Victory!', `Stage cleared with ${battle.hero.hp} HP left`, 'Play again');
+      later(1200, () => showOverlay('Victory!', `Stage cleared with ${battle.hero.hp} HP left`, 'Play again'));
       break;
     case 'defeat':
-      showOverlay('Defeat', `Fell on wave ${battle.waveIndex + 1}`, 'Retry');
+      later(1600, () => showOverlay('Defeat', `Fell on wave ${battle.waveIndex + 1}`, 'Retry'));
       break;
   }
+}
+
+// Hero attacks: prompt over the target. Enemy attacks: prompt over the hero
+// after a short wind-up so the player can see who is swinging.
+function startQte(e) {
+  const id = session;
+  const ability = ABILITIES[e.abilityId];
+  const delay = e.qte === 'parry' ? WINDUP : 120;
+  later(delay, async () => {
+    const at = e.qte === 'attack' ? centerOf(enemyEls.get(e.targetId)?.sprite) : heroChest();
+    const { success } = await runQte(el.qteLayer, {
+      ...at,
+      kind: e.qte,
+      duration: ability.qteTime,
+      window: QTE_WINDOW[e.qte],
+    });
+    if (id === session) battle.resolveQte(success);
+  });
 }
 
 function buildEnemies() {
@@ -193,19 +225,30 @@ function buildEnemies() {
       <div class="sprite" style="background:${art.bg}">${art.glyph}</div>
       <div class="enemy-name">${enemy.name}</div>
       <div class="tags">${tags}</div>
-      <div class="bar hp"><div class="fill"></div></div>
-      <div class="bar atb"><div class="fill"></div></div>`;
+      <div class="bar hp"><div class="fill"></div></div>`;
     root.addEventListener('click', () => {
       if (enemy.hp > 0) targetId = enemy.id;
     });
     el.enemies.appendChild(root);
-    const [hpFill, atbFill] = root.querySelectorAll('.fill');
-    enemyEls.set(enemy.id, { root, hpBar: hpFill.parentElement, hpFill, atbFill });
+    const hpFill = root.querySelector('.fill');
+    enemyEls.set(enemy.id, { root, sprite: root.querySelector('.sprite'), hpBar: hpFill.parentElement, hpFill });
   }
   targetId = battle.enemies[0]?.id ?? null;
 }
 
 // ---------- Rendering ----------
+function renderTurns() {
+  el.turns.innerHTML = battle
+    .upcoming(7)
+    .map((id, i) => {
+      const unit = battle.unit(id);
+      const isHero = id === 'hero';
+      const face = isHero ? 'YOU' : (SPRITES[unit.name]?.glyph ?? '?');
+      return `<li class="turn${isHero ? ' hero' : ''}${i === 0 ? ' now' : ''}" title="${unit.name}">${face}</li>`;
+    })
+    .join('');
+}
+
 function render() {
   const hero = battle.hero;
   el.heroHp.textContent = `${hero.hp}/${hero.maxHp}`;
@@ -214,12 +257,9 @@ function render() {
   stage.setHurt(hero.hp > 0 && hero.hp / hero.maxHp < 0.3);
   el.heroMp.textContent = `${hero.mp}/${hero.maxMp}`;
   el.heroMpFill.style.width = `${(hero.mp / hero.maxMp) * 100}%`;
-  el.heroAtbFill.style.width = `${hero.atb * 100}%`;
-  el.heroAtbFill.parentElement.classList.toggle('full', hero.atb >= 1);
-  const queued = hero.state === 'queued' && battle.queue.find((q) => q.actorId === hero.id);
-  el.heroStatus.textContent = queued ? `${ABILITIES[queued.abilityId].name}…` : hero.defending ? 'GUARD' : '';
+  el.heroStatus.textContent = hero.defending ? 'GUARD' : '';
 
-  const awaiting = battle.phase === 'battle' && hero.state === 'ready' && !battle.auto;
+  const awaiting = battle.phase === 'command' && !battle.auto;
   el.hero.classList.toggle('ready', awaiting);
   for (const { ability, btn } of commandButtons) {
     btn.disabled = !awaiting || hero.mp < ability.mp;
@@ -230,7 +270,6 @@ function render() {
     if (!view) continue;
     view.hpFill.style.width = `${(enemy.hp / enemy.maxHp) * 100}%`;
     view.hpBar.classList.toggle('low', enemy.hp / enemy.maxHp < 0.3);
-    view.atbFill.style.width = `${enemy.atb * 100}%`;
     view.root.classList.toggle('targeted', enemy.id === targetId && enemy.hp > 0);
   }
 }
@@ -245,6 +284,18 @@ function playHeroMove(ability) {
 // Hero popups float over the 3D model's head rather than the stats panel.
 function unitEl(id) {
   return id === 'hero' ? el.heroAnchor : enemyEls.get(id)?.root;
+}
+
+function centerOf(node) {
+  const g = el.game.getBoundingClientRect();
+  const r = (node ?? el.field).getBoundingClientRect();
+  return { x: r.left + r.width / 2 - g.left, y: r.top + r.height / 2 - g.top };
+}
+
+function heroChest() {
+  const g = el.game.getBoundingClientRect();
+  const r = el.heroAnchor.getBoundingClientRect();
+  return { x: r.left - g.left, y: r.top - g.top + 70 };
 }
 
 function replayClass(node, cls) {
@@ -279,13 +330,11 @@ function showOverlay(title, sub, button) {
 // ---------- Loop ----------
 let last = performance.now();
 function frame(now) {
-  // Clamp so a backgrounded tab doesn't fast-forward the fight on return.
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  battle.update(dt * prefs.speed);
   bannerTimer -= dt;
   if (bannerTimer <= 0) el.banner.classList.remove('show');
-  stage.update(dt, dt * prefs.speed);
+  stage.update(dt, dt);
   const head = stage.headScreenPosition();
   el.heroAnchor.style.transform = `translate(${head.x}px, ${head.y}px)`;
   render();

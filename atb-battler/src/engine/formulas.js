@@ -6,7 +6,8 @@ export function elementModifier(target, element) {
 }
 
 // Physical: atk vs full def. Magic: mag vs half def. ±10% variance.
-export function computeDamage(attacker, target, ability, rng) {
+// bonus multiplies the result (2 for a perfect QTE hit).
+export function computeDamage(attacker, target, ability, rng, bonus = 1) {
   const magic = ability.kind === 'magic';
   const stat = magic ? attacker.mag : attacker.atk;
   const defense = magic ? target.def * 0.5 : target.def;
@@ -14,7 +15,7 @@ export function computeDamage(attacker, target, ability, rng) {
   const variance = 0.9 + rng() * 0.2;
   const { mult, tag } = elementModifier(target, ability.element);
   const guard = target.defending ? 0.5 : 1;
-  return { amount: Math.max(1, Math.round(base * variance * mult * guard)), tag };
+  return { amount: Math.max(1, Math.round(base * variance * mult * guard * bonus)), tag };
 }
 
 export function computeHeal(caster, ability, rng) {

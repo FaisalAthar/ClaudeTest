@@ -3,19 +3,20 @@ import { computeDamage, computeHeal } from './formulas.js';
 import { chooseEnemyAction, chooseHeroAction } from './ai.js';
 import { createRng } from './rng.js';
 
-// How long (seconds) an action occupies the field before the next queued one
-// resolves. Gauges keep filling meanwhile — that's what makes it "active".
-export const ACTION_DURATION = 0.9;
-export const WAVE_TRANSITION = 1.5;
-// A unit with spd S fills its gauge in 100 / S seconds.
-export const ATB_RATE = 1 / 100;
+// Turn-based battle. Each round, every living unit acts once in speed order
+// (fastest first, hero wins ties). The engine never measures time: when an
+// action needs a timed press (QTE) it stops in phase 'qte' and the UI calls
+// resolveQte(success) once the player hits or misses the window.
+//
+// Phases:
+//   command   — hero's turn, waiting for command()
+//   qte       — an attack is waiting on resolveQte()
+//   turnEnd   — action resolved; UI plays it out, then calls next()
+//   waveClear — every enemy down; next() brings in the next wave
+//   victory / defeat
 
-// Unit states:
-//   charging — gauge filling
-//   ready    — hero only: gauge full, waiting for the player's command
-//   queued   — action chosen, waiting its turn in the action queue
-//   acting   — its action is currently resolving
-//   ko       — dead
+const OFFENSIVE = new Set(['physical', 'magic']);
+
 function makeUnit(def, id, side) {
   return {
     id,
@@ -34,26 +35,24 @@ function makeUnit(def, id, side) {
     abilities: def.abilities ?? [],
     actions: def.actions ?? [],
     boss: !!def.boss,
-    atb: 0,
-    state: 'charging',
     defending: false,
   };
 }
 
 export class Battle {
-  constructor({ hero, stage, seed = Date.now(), atbMode = 'active', auto = false }) {
+  constructor({ hero, stage, seed = Date.now(), auto = false }) {
     this.rng = createRng(seed);
     this.hero = makeUnit(hero, 'hero', 'hero');
     this.stage = stage;
-    this.atbMode = atbMode;
     this.auto = auto;
     this.waveIndex = -1;
     this.enemies = [];
-    this.queue = [];
-    this.current = null;
-    this.phase = 'idle'; // idle | battle | transition | victory | defeat
-    this.transitionTimer = 0;
-    this.time = 0;
+    this.round = 0;
+    this.order = []; // unit ids for the current round
+    this.turnIndex = -1;
+    this.current = null; // unit whose turn it is
+    this.pending = null; // { actorId, abilityId, targetId, qte } awaiting resolveQte
+    this.phase = 'idle';
     this.listeners = new Set();
   }
 
@@ -63,12 +62,13 @@ export class Battle {
   }
 
   emit(type, payload = {}) {
-    const event = { type, time: this.time, ...payload };
+    const event = { type, ...payload };
     for (const fn of this.listeners) fn(event);
   }
 
   start() {
     this.startWave(0);
+    this.beginTurn();
   }
 
   unit(id) {
@@ -83,115 +83,124 @@ export class Battle {
     return this.stage.waves.length;
   }
 
-  // Wait mode freezes gauges while the player is deciding; active mode doesn't.
-  get gaugesFrozen() {
-    return this.atbMode === 'wait' && !this.auto && this.hero.state === 'ready';
+  roundOrder() {
+    return [this.hero, ...this.livingEnemies()]
+      .filter((u) => u.hp > 0)
+      .sort((a, b) => b.spd - a.spd || (a.side === 'hero' ? -1 : b.side === 'hero' ? 1 : 0))
+      .map((u) => u.id);
   }
 
-  update(dt) {
-    if (this.phase === 'transition') {
-      this.transitionTimer -= dt;
-      if (this.transitionTimer <= 0) this.startWave(this.waveIndex + 1);
-      return;
-    }
-    if (this.phase !== 'battle') return;
-    this.time += dt;
+  /** The next `count` turns, starting with the current one. */
+  upcoming(count = 6) {
+    const living = (id) => this.unit(id)?.hp > 0;
+    const result = this.order.slice(Math.max(0, this.turnIndex)).filter(living);
+    const nextRound = this.roundOrder();
+    while (result.length < count && nextRound.length) result.push(...nextRound);
+    return result.slice(0, count);
+  }
 
-    if (!this.gaugesFrozen) {
-      for (const u of [this.hero, ...this.enemies]) {
-        if (u.state !== 'charging') continue;
-        u.atb = Math.min(1, u.atb + dt * u.spd * ATB_RATE);
-        if (u.atb >= 1) this.onGaugeFull(u);
+  // ---------- Turn flow ----------
+
+  beginTurn() {
+    let actor = null;
+    while (!actor) {
+      this.turnIndex++;
+      if (this.turnIndex >= this.order.length) {
+        this.round++;
+        this.order = this.roundOrder();
+        this.turnIndex = 0;
+        this.emit('roundStart', { round: this.round });
       }
+      const candidate = this.unit(this.order[this.turnIndex]);
+      if (candidate?.hp > 0) actor = candidate;
     }
+    this.current = actor;
+    this.emit('turnStart', { actorId: actor.id });
 
-    if (this.current) {
-      this.current.remaining -= dt;
-      if (this.current.remaining <= 0) this.finishAction();
-    }
-    if (this.phase === 'battle' && !this.current) this.beginNextAction();
-  }
-
-  onGaugeFull(u) {
-    if (u.side === 'enemy') {
-      this.enqueue(u, chooseEnemyAction(u, this));
-    } else if (this.auto) {
-      this.enqueue(u, chooseHeroAction(this));
+    if (actor.side === 'hero') {
+      actor.defending = false; // Defend lasts until the hero's next turn
+      this.phase = 'command';
+      this.emit('heroTurn');
+      if (this.auto) {
+        const { abilityId, targetId } = chooseHeroAction(this);
+        this.command(abilityId, targetId);
+      }
     } else {
-      u.state = 'ready';
-      this.emit('heroReady');
+      const { abilityId } = chooseEnemyAction(actor, this);
+      this.pending = { actorId: actor.id, abilityId, targetId: this.hero.id, qte: 'parry' };
+      this.phase = 'qte';
+      this.emit('actionStart', this.pending);
     }
   }
 
-  enqueue(actor, { abilityId, targetId }) {
-    actor.state = 'queued';
-    this.queue.push({ actorId: actor.id, abilityId, targetId });
-    this.emit('queued', { actorId: actor.id, abilityId, targetId });
-  }
-
-  // Player input. Returns { ok, reason } so the UI can explain rejections.
+  // Player input on the hero's turn. Returns { ok, reason }.
   command(abilityId, targetId) {
     const hero = this.hero;
-    if (this.phase !== 'battle') return { ok: false, reason: 'not-in-battle' };
-    if (hero.state !== 'ready') return { ok: false, reason: 'not-ready' };
+    if (this.phase !== 'command') return { ok: false, reason: 'not-your-turn' };
     if (!hero.abilities.includes(abilityId)) return { ok: false, reason: 'unknown-ability' };
     const ability = ABILITIES[abilityId];
     if (hero.mp < ability.mp) return { ok: false, reason: 'no-mp' };
+
     let target = ability.target === 'self' ? hero : this.unit(targetId);
     if (ability.target === 'enemy' && (!target || target.side !== 'enemy' || target.hp <= 0)) {
       target = this.livingEnemies()[0];
     }
-    this.enqueue(hero, { abilityId, targetId: target.id });
+    hero.mp -= ability.mp;
+
+    if (OFFENSIVE.has(ability.kind)) {
+      this.pending = { actorId: hero.id, abilityId, targetId: target.id, qte: 'attack' };
+      this.phase = 'qte';
+      this.emit('actionStart', this.pending);
+    } else {
+      this.emit('actionStart', { actorId: hero.id, abilityId, targetId: target.id, qte: null });
+      this.applyEffect(hero, ability, target);
+      this.finishTurn();
+    }
     return { ok: true };
   }
 
   setAuto(on) {
     this.auto = on;
-    if (on && this.phase === 'battle' && this.hero.state === 'ready') {
-      this.enqueue(this.hero, chooseHeroAction(this));
+    if (on && this.phase === 'command') {
+      const { abilityId, targetId } = chooseHeroAction(this);
+      this.command(abilityId, targetId);
     }
   }
 
-  setAtbMode(mode) {
-    this.atbMode = mode;
-  }
+  /**
+   * Outcome of the timed press for the pending action.
+   *   Hero attack: success = perfect hit, double damage.
+   *   Enemy attack: success = parry, no damage and the hero counters.
+   */
+  resolveQte(success) {
+    if (this.phase !== 'qte') return;
+    const { actorId, abilityId, targetId, qte } = this.pending;
+    this.pending = null;
+    const actor = this.unit(actorId);
+    const target = this.unit(targetId);
+    const ability = ABILITIES[abilityId];
+    this.emit('qteResult', { kind: qte, success, actorId, targetId });
 
-  beginNextAction() {
-    while (this.queue.length) {
-      const entry = this.queue.shift();
-      const actor = this.unit(entry.actorId);
-      if (!actor || actor.hp <= 0) continue;
-      let abilityId = entry.abilityId;
-      if (actor.mp < ABILITIES[abilityId].mp) abilityId = 'attack';
-      const ability = ABILITIES[abilityId];
-
-      let target = this.unit(entry.targetId);
-      if (ability.target === 'self') {
-        target = actor;
-      } else if (!target || target.hp <= 0) {
-        // Original target died while this action waited in the queue.
-        target = actor.side === 'hero' ? this.livingEnemies()[0] : this.hero;
-        if (!target) continue;
-      }
-
-      actor.state = 'acting';
-      actor.mp -= ability.mp;
-      actor.defending = false;
-      this.current = { actor, ability, abilityId, target, remaining: ACTION_DURATION };
-      this.emit('actionStart', { actorId: actor.id, abilityId, targetId: target.id });
+    if (qte === 'attack') {
+      this.applyEffect(actor, ability, target, success ? 2 : 1);
+    } else if (success) {
+      this.emit('parry', { actorId: target.id, attackerId: actor.id });
+      this.emit('actionStart', { actorId: target.id, abilityId: 'counter', targetId: actor.id, qte: null });
+      this.applyEffect(target, ABILITIES.counter, actor);
+    } else {
       this.applyEffect(actor, ability, target);
-      return;
     }
+    this.finishTurn();
   }
 
-  applyEffect(actor, ability, target) {
+  applyEffect(actor, ability, target, bonus = 1) {
     switch (ability.kind) {
       case 'physical':
       case 'magic': {
-        const { amount, tag } = computeDamage(actor, target, ability, this.rng);
+        const { amount, tag } = computeDamage(actor, target, ability, this.rng, bonus);
         target.hp = Math.max(0, target.hp - amount);
-        this.emit('damage', { actorId: actor.id, targetId: target.id, amount, tag });
-        if (target.hp === 0) this.knockOut(target);
+        this.emit('damage', { actorId: actor.id, targetId: target.id, amount, tag, perfect: bonus > 1 });
+        if (target.hp === 0) this.emit('ko', { unitId: target.id });
         break;
       }
       case 'heal': {
@@ -212,50 +221,41 @@ export class Battle {
     }
   }
 
-  knockOut(unit) {
-    unit.state = 'ko';
-    unit.atb = 0;
-    this.queue = this.queue.filter((q) => q.actorId !== unit.id);
-    this.emit('ko', { unitId: unit.id });
-  }
-
-  finishAction() {
-    const { actor } = this.current;
-    this.current = null;
-    if (actor.hp > 0) {
-      actor.atb = 0;
-      actor.state = 'charging';
-    }
-    this.emit('actionEnd', { actorId: actor.id });
-    this.checkOutcome();
-  }
-
-  checkOutcome() {
+  finishTurn() {
     if (this.hero.hp <= 0) {
       this.phase = 'defeat';
       this.emit('defeat');
     } else if (this.livingEnemies().length === 0) {
-      this.queue = [];
-      if (this.hero.state === 'queued') this.hero.state = 'charging'; // re-picks next wave
       if (this.waveIndex + 1 >= this.totalWaves) {
         this.phase = 'victory';
         this.emit('victory');
       } else {
-        this.phase = 'transition';
-        this.transitionTimer = WAVE_TRANSITION;
+        this.phase = 'waveClear';
         this.emit('waveCleared', { wave: this.waveIndex });
       }
+    } else {
+      this.phase = 'turnEnd';
+      this.emit('turnEnd');
+    }
+  }
+
+  /** Called by the UI once the last action has played out. */
+  next() {
+    if (this.phase === 'turnEnd') {
+      this.beginTurn();
+    } else if (this.phase === 'waveClear') {
+      this.startWave(this.waveIndex + 1);
+      this.beginTurn();
     }
   }
 
   startWave(index) {
     this.waveIndex = index;
-    this.enemies = this.stage.waves[index].map((key, n) => {
-      const enemy = makeUnit(ENEMIES[key], `e${index}-${n}`, 'enemy');
-      enemy.atb = this.rng() * 0.3; // stagger so enemies don't act in lockstep
-      return enemy;
-    });
-    this.phase = 'battle';
+    this.enemies = this.stage.waves[index].map((key, n) => makeUnit(ENEMIES[key], `e${index}-${n}`, 'enemy'));
+    // A new wave starts a fresh round.
+    this.order = [];
+    this.turnIndex = -1;
+    this.hero.defending = false;
     this.emit('waveStart', { wave: index, total: this.totalWaves });
   }
 }

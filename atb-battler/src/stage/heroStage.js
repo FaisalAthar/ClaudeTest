@@ -4,6 +4,7 @@ import { loadHeroModel } from './heroModel.js';
 const ELEMENT_COLORS = { fire: 0xff6a3d, ice: 0x6fd3ff, thunder: 0xf7e05a };
 const HEAL_COLOR = 0x6dffa8;
 const GUARD_COLOR = 0x6f9bff;
+const PARRY_COLOR = 0xd6e6ff;
 const HIT_COLOR = new THREE.Color(0xff3030);
 const HEAD_HEIGHT = 1.95;
 
@@ -145,6 +146,16 @@ export class HeroStage {
       m.material.opacity = 0.35 * (1 - p);
       m.scale.setScalar(0.9 + p * 0.2);
     });
+  }
+
+  // Successful parry: the sword-block clip plus a bright spark ring.
+  parry() {
+    if (!this.clip('defend')) {
+      this.tween(0.25, (p, o) => {
+        o.z -= Math.sin(Math.PI * p) * 0.15;
+      });
+    }
+    this.ring(PARRY_COLOR);
   }
 
   hit() {

@@ -19,7 +19,7 @@ for (const file of readdirSync(assetsDir, { recursive: true })) {
 }
 const body = html.match(/<body>([\s\S]*)<\/body>/)[1];
 
-const out = `<title>ATB Battler</title>
+const out = `<title>Hex Battler</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>${css}</style>
 ${body.trim()}

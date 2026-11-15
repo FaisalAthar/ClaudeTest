@@ -1,11 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Battle, ACTION_DURATION } from '../src/engine/battle.js';
+import { Battle } from '../src/engine/battle.js';
 import { HERO, STAGES } from '../src/engine/data.js';
 import { computeDamage } from '../src/engine/formulas.js';
 import { chooseHeroAction } from '../src/engine/ai.js';
-
-const STEP = 1 / 60;
 
 function newBattle(opts = {}) {
   const battle = new Battle({ hero: HERO, stage: STAGES.forest, seed: 42, ...opts });
@@ -15,76 +13,126 @@ function newBattle(opts = {}) {
   return { battle, events };
 }
 
-function runUntil(battle, predicate, maxSeconds = 600) {
-  for (let t = 0; t < maxSeconds; t += STEP) {
-    if (predicate()) return true;
-    battle.update(STEP);
+// Drives the battle to `predicate`, answering every QTE with `qte(pending)`
+// and every hero turn with the auto AI.
+function play(battle, { qte = () => false, until = () => false, maxTurns = 2000 } = {}) {
+  for (let i = 0; i < maxTurns && !until(); i++) {
+    if (battle.phase === 'command') {
+      const { abilityId, targetId } = chooseHeroAction(battle);
+      battle.command(abilityId, targetId);
+    } else if (battle.phase === 'qte') {
+      battle.resolveQte(qte(battle.pending));
+    } else if (battle.phase === 'turnEnd' || battle.phase === 'waveClear') {
+      battle.next();
+    } else {
+      break;
+    }
   }
-  return predicate();
 }
 
-test('gauge fills at spd / 100 per second', () => {
+// Runs enemy turns (missing the parry) until it's the hero's turn.
+function toHeroTurn(battle) {
+  play(battle, { until: () => battle.phase === 'command' });
+}
+
+test('rounds go in speed order, hero first', () => {
   const { battle } = newBattle();
-  battle.update(0.5);
-  assert.ok(Math.abs(battle.hero.atb - 0.5 * HERO.spd / 100) < 1e-9);
+  assert.equal(battle.phase, 'command');
+  assert.equal(battle.current.id, 'hero');
+  assert.deepEqual(battle.upcoming(3), ['hero', 'e0-0', 'e0-1']);
 });
 
-test('manual hero waits for a command once the gauge is full', () => {
+test('the battle waits on the hero: nothing happens without a command', () => {
   const { battle, events } = newBattle();
-  runUntil(battle, () => battle.hero.state === 'ready');
-  assert.ok(events.some((e) => e.type === 'heroReady'));
-  const atbBefore = battle.hero.atb;
-  battle.update(1);
-  assert.equal(battle.hero.state, 'ready');
-  assert.equal(battle.hero.atb, atbBefore);
+  const before = events.length;
+  battle.next();
+  battle.resolveQte(true);
+  assert.equal(battle.phase, 'command');
+  assert.equal(events.length, before);
 });
 
-test('active mode keeps enemy gauges filling while the hero is ready', () => {
-  const { battle } = newBattle({ atbMode: 'active' });
-  runUntil(battle, () => battle.hero.state === 'ready');
-  const charging = battle.enemies.find((e) => e.state === 'charging');
-  assert.ok(charging);
-  const before = charging.atb;
-  battle.update(0.1);
-  assert.ok(charging.atb > before || charging.state !== 'charging');
+test('attacking starts a QTE; a perfect hit doubles damage', () => {
+  const run = (success) => {
+    const { battle, events } = newBattle();
+    const target = battle.enemies[0];
+    assert.deepEqual(battle.command('attack', target.id), { ok: true });
+    assert.equal(battle.phase, 'qte');
+    assert.equal(battle.pending.qte, 'attack');
+    battle.resolveQte(success);
+    return events.find((e) => e.type === 'damage');
+  };
+  const normal = run(false);
+  const perfect = run(true);
+  assert.equal(normal.perfect, false);
+  assert.equal(perfect.perfect, true);
+  assert.equal(perfect.amount, normal.amount * 2); // same seed → same variance roll
 });
 
-test('wait mode freezes all gauges while the hero is ready', () => {
-  const { battle } = newBattle({ atbMode: 'wait' });
-  runUntil(battle, () => battle.hero.state === 'ready');
-  const snapshot = battle.enemies.map((e) => e.atb);
-  battle.update(2);
-  assert.deepEqual(battle.enemies.map((e) => e.atb), snapshot);
-});
-
-test('command queues the action, resolves it, then resets the gauge', () => {
-  const { battle, events } = newBattle();
-  runUntil(battle, () => battle.hero.state === 'ready');
-  const target = battle.enemies[0];
-  assert.deepEqual(battle.command('attack', target.id), { ok: true });
-  runUntil(battle, () => events.some((e) => e.type === 'actionEnd' && e.actorId === 'hero'));
-  const dmg = events.find((e) => e.type === 'damage' && e.actorId === 'hero');
-  assert.equal(dmg.targetId, target.id);
-  assert.ok(target.hp < target.maxHp);
-  assert.equal(battle.hero.state, 'charging');
-  assert.ok(battle.hero.atb < 0.1);
-});
-
-test('command is rejected when not ready or out of MP', () => {
+test('spells use the attack QTE too; Cure and Defend do not', () => {
   const { battle } = newBattle();
-  assert.equal(battle.command('attack', battle.enemies[0].id).reason, 'not-ready');
-  runUntil(battle, () => battle.hero.state === 'ready');
-  battle.hero.mp = 0;
-  assert.equal(battle.command('fire', battle.enemies[0].id).reason, 'no-mp');
+  battle.command('fire', battle.enemies[0].id);
+  assert.equal(battle.pending.qte, 'attack');
+  battle.resolveQte(false);
+  battle.next();
+  toHeroTurn(battle);
+  battle.command('defend');
+  assert.equal(battle.phase, 'turnEnd');
+  assert.equal(battle.hero.defending, true);
 });
 
-test('actions resolve one at a time, ACTION_DURATION apart', () => {
-  const { battle, events } = newBattle({ auto: true });
-  runUntil(battle, () => events.filter((e) => e.type === 'actionStart').length >= 4, 60);
-  const starts = events.filter((e) => e.type === 'actionStart').map((e) => e.time);
-  for (let i = 1; i < starts.length; i++) {
-    assert.ok(starts[i] - starts[i - 1] >= ACTION_DURATION - STEP);
-  }
+test('enemy turns ask for a parry QTE against the hero', () => {
+  const { battle } = newBattle();
+  battle.command('defend');
+  battle.next();
+  assert.equal(battle.phase, 'qte');
+  assert.equal(battle.pending.qte, 'parry');
+  assert.equal(battle.pending.targetId, 'hero');
+  assert.equal(battle.current.side, 'enemy');
+});
+
+test('a missed parry lands the hit', () => {
+  const { battle, events } = newBattle();
+  battle.command('attack', battle.enemies[0].id);
+  battle.resolveQte(false);
+  battle.next();
+  const hp = battle.hero.hp;
+  battle.resolveQte(false);
+  const hit = events.find((e) => e.type === 'damage' && e.targetId === 'hero');
+  assert.ok(hit);
+  assert.equal(battle.hero.hp, hp - hit.amount);
+});
+
+test('a parry blocks all damage and counters the attacker', () => {
+  const { battle, events } = newBattle();
+  battle.command('attack', battle.enemies[0].id);
+  battle.resolveQte(false);
+  battle.next();
+  const attacker = battle.current;
+  const hp = battle.hero.hp;
+  const enemyHp = attacker.hp;
+  const from = events.length;
+  battle.resolveQte(true);
+  assert.equal(battle.hero.hp, hp);
+  assert.ok(events.some((e) => e.type === 'parry' && e.attackerId === attacker.id));
+  const counter = events.slice(from).find((e) => e.type === 'damage' && e.actorId === 'hero' && e.targetId === attacker.id && !e.perfect);
+  assert.ok(counter);
+  assert.equal(attacker.hp, Math.max(0, enemyHp - counter.amount));
+});
+
+test('Defend halves a hit until the hero acts again', () => {
+  const rng = () => 0.5;
+  const attacker = { atk: 20, mag: 20 };
+  const target = { def: 10, weak: [], resist: [], defending: false };
+  const claw = { kind: 'physical', power: 1 };
+  const normal = computeDamage(attacker, target, claw, rng).amount;
+  const guarded = computeDamage(attacker, { ...target, defending: true }, claw, rng).amount;
+  assert.equal(guarded, Math.round(normal * 0.5));
+
+  const { battle } = newBattle();
+  battle.command('defend');
+  battle.next();
+  toHeroTurn(battle);
+  assert.equal(battle.hero.defending, false);
 });
 
 test('weakness doubles damage and resistance halves it', () => {
@@ -100,25 +148,29 @@ test('weakness doubles damage and resistance halves it', () => {
   assert.equal(resist.amount, Math.round(neutral * 0.5));
 });
 
-test('defending halves incoming damage', () => {
-  const rng = () => 0.5;
-  const attacker = { atk: 20, mag: 20 };
-  const target = { def: 10, weak: [], resist: [], defending: false };
-  const claw = { kind: 'physical', power: 1 };
-  const normal = computeDamage(attacker, target, claw, rng).amount;
-  const guarded = computeDamage(attacker, { ...target, defending: true }, claw, rng).amount;
-  assert.equal(guarded, Math.round(normal * 0.5));
+test('command is rejected off-turn or without MP', () => {
+  const { battle } = newBattle();
+  battle.command('defend');
+  assert.equal(battle.command('attack', battle.enemies[0].id).reason, 'not-your-turn');
+  battle.next();
+  toHeroTurn(battle);
+  battle.hero.mp = 0;
+  assert.equal(battle.command('fire', battle.enemies[0].id).reason, 'no-mp');
 });
 
-test('queued action retargets when its target dies first', () => {
+test('a dead target is swapped for a living enemy', () => {
   const { battle, events } = newBattle();
-  runUntil(battle, () => battle.hero.state === 'ready');
   const [first, second] = battle.enemies;
-  battle.command('attack', first.id);
-  battle.knockOut(first);
   first.hp = 0;
-  runUntil(battle, () => events.some((e) => e.type === 'damage' && e.actorId === 'hero'));
-  assert.equal(events.find((e) => e.type === 'damage' && e.actorId === 'hero').targetId, second.id);
+  battle.command('attack', first.id);
+  battle.resolveQte(false);
+  assert.equal(events.find((e) => e.type === 'damage').targetId, second.id);
+});
+
+test('KO\'d enemies drop out of the turn order', () => {
+  const { battle } = newBattle();
+  battle.enemies[0].hp = 0;
+  assert.deepEqual(battle.upcoming(3), ['hero', 'e0-1', 'hero']);
 });
 
 test('auto AI heals when low, exploits weakness, else attacks', () => {
@@ -131,16 +183,20 @@ test('auto AI heals when low, exploits weakness, else attacks', () => {
   assert.equal(chooseHeroAction(battle).abilityId, 'attack');
 });
 
-test('clearing every wave ends in victory', () => {
-  const { battle, events } = newBattle({ auto: true });
-  runUntil(battle, () => battle.phase === 'victory' || battle.phase === 'defeat');
-  assert.equal(events.filter((e) => e.type === 'waveStart').length, STAGES.forest.waves.length);
+test('a perfect-timing player clears every wave', () => {
+  const { battle, events } = newBattle();
+  play(battle, { qte: () => true, until: () => ['victory', 'defeat'].includes(battle.phase) });
   assert.equal(battle.phase, 'victory');
+  assert.equal(events.filter((e) => e.type === 'waveStart').length, STAGES.forest.waves.length);
 });
 
-test('hero KO ends in defeat', () => {
+test('a hero who never acts is defeated', () => {
   const { battle, events } = newBattle();
-  runUntil(battle, () => battle.phase === 'defeat');
+  for (let i = 0; i < 500 && battle.phase !== 'defeat'; i++) {
+    if (battle.phase === 'command') battle.command('defend');
+    else if (battle.phase === 'qte') battle.resolveQte(false);
+    else battle.next();
+  }
+  assert.equal(battle.phase, 'defeat');
   assert.ok(events.some((e) => e.type === 'defeat'));
-  assert.equal(battle.hero.hp, 0);
 });
