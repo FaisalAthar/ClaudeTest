@@ -460,6 +460,27 @@ button {
   z-index: 8;
   pointer-events: none;
 }
+.qte-backdrop {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at var(--qx, 50%) var(--qy, 50%),
+    rgb(5 6 13 / 0.88) 0,
+    rgb(5 6 13 / 0.78) 120px,
+    rgb(5 6 13 / 0.45) 240px,
+    rgb(5 6 13 / 0.3) 100%
+  );
+  animation: qte-backdrop-in 0.15s ease-out;
+}
+.qte-backdrop-out {
+  animation: qte-backdrop-out 0.5s ease-in 0.15s forwards;
+}
+@keyframes qte-backdrop-in {
+  from { opacity: 0; }
+}
+@keyframes qte-backdrop-out {
+  to { opacity: 0; }
+}
 .qte-catcher {
   position: absolute;
   inset: 0;

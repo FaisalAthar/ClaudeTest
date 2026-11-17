@@ -54,10 +54,16 @@ export function runQte(layer, { x, y, kind, duration, window }) {
       root.appendChild(hint);
     }
 
+    // Dark backdrop centred on the prompt so it reads over the 3D scene.
+    const backdrop = document.createElement('div');
+    backdrop.className = 'qte-backdrop';
+    backdrop.style.setProperty('--qx', `${x}px`);
+    backdrop.style.setProperty('--qy', `${y}px`);
+
     // Full-screen catcher so a tap anywhere counts.
     const catcher = document.createElement('div');
     catcher.className = 'qte-catcher';
-    layer.append(catcher, root);
+    layer.append(backdrop, catcher, root);
 
     const start = performance.now();
     const ideal = duration * 1000;
@@ -84,7 +90,11 @@ export function runQte(layer, { x, y, kind, duration, window }) {
           : offset < 0
             ? 'TOO EARLY'
             : 'TOO LATE';
-      setTimeout(() => root.remove(), 650);
+      backdrop.classList.add('qte-backdrop-out');
+      setTimeout(() => {
+        root.remove();
+        backdrop.remove();
+      }, 650);
       resolve({ success, offset });
     }
 
